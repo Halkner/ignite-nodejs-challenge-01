@@ -1,65 +1,129 @@
-import { randomUUID } from 'node:crypto'
-import { Database } from './database.js'
-import { buildRoutePath } from './utils/build-route-path.js'
+import { randomUUID } from "node:crypto";
+import { Database } from "./database.js";
+import { buildRoutePath } from "./utils/build-route-path.js";
+import { HTTP_STATUS } from "./utils/http-status-code.js";
 
-const database = new Database()
+const database = new Database();
 
 export const routes = [
   {
-    method: 'GET',
-    path: buildRoutePath('/users'),
+    method: "GET",
+    path: buildRoutePath("/tasks"),
     handler: (req, res) => {
-      const { search } = req.query
+      const { search } = req.query;
 
-      const users = database.select('users', search ? {
-        name: search,
-        email: search
-      } : null)
+      const tasks = database.select(
+        "tasks",
+        search
+          ? {
+              title: search,
+              description: search,
+            }
+          : null
+      );
 
-      return res.end(JSON.stringify(users))
-    }
+      return res.end(JSON.stringify(tasks));
+    },
   },
   {
-    method: 'POST',
-    path: buildRoutePath('/users'),
+    method: "POST",
+    path: buildRoutePath("/tasks"),
     handler: (req, res) => {
-      const { name, email } = req.body
+      const { title, description } = req.body;
 
-      const user = {
+      if (!title)
+        return res
+          .writeHead(HTTP_STATUS.BAD_REQUEST)
+          .end(JSON.stringify(`Missing 'title' property in the request body.`));
+
+      if (!description)
+        return res
+          .writeHead(HTTP_STATUS.BAD_REQUEST)
+          .end(
+            JSON.stringify(
+              `Missing 'description' property in the request body.`
+            )
+          );
+
+      const task = {
         id: randomUUID(),
-        name,
-        email,
+        title,
+        description,
+        created_at: new Date(),
+        updated_at: new Date(),
+        completed_at: null,
+      };
+
+      database.insert("tasks", task);
+
+      return res.writeHead(HTTP_STATUS.CREATED).end();
+    },
+  },
+  {
+    method: "PUT",
+    path: buildRoutePath("/tasks/:id"),
+    handler: (req, res) => {
+      const { id } = req.params;
+      const { title, description } = req.body;
+
+      if (!task) {
+        return res
+          .writeHead(HTTP_STATUS.NOT_FOUND)
+          .end(JSON.stringify(`Record with id '${id}' not found.`));
       }
 
-      database.insert('users', user)
+      if (!title && !description)
+        return res
+          .writeHead(HTTP_STATUS.BAD_REQUEST)
+          .end(
+            JSON.stringify(
+              `Missing 'title' and 'description', should have at least one property in the request body.`
+            )
+          );
 
-      return res.writeHead(201).end()
-    }
+      database.update("tasks", id, {
+        ...(title && { title }),
+        ...(description && { description }),
+      });
+
+      return res.writeHead(HTTP_STATUS.NO_CONTENT).end();
+    },
   },
   {
-    method: 'PUT',
-    path: buildRoutePath('/users/:id'),
+    method: "DELETE",
+    path: buildRoutePath("/tasks/:id"),
     handler: (req, res) => {
-      const { id } = req.params
-      const { name, email } = req.body
+      const { id } = req.params;
 
-      database.update('users', id, {
-        name,
-        email,
-      })
+      if (!task) {
+        return res
+          .writeHead(HTTP_STATUS.NOT_FOUND)
+          .end(JSON.stringify(`Record with id '${id}' not found.`));
+      }
 
-      return res.writeHead(204).end()
-    }
+      database.delete("tasks", id);
+
+      return res.writeHead(HTTP_STATUS.NO_CONTENT).end();
+    },
   },
   {
-    method: 'DELETE',
-    path: buildRoutePath('/users/:id'),
+    method: "PATCH",
+    path: buildRoutePath("/tasks/:id/complete"),
     handler: (req, res) => {
-      const { id } = req.params
+      const { id } = req.params;
+      const [task] = database.select("tasks", { id });
 
-      database.delete('users', id)
+      if (!task) {
+        return res
+          .writeHead(HTTP_STATUS.NOT_FOUND)
+          .end(JSON.stringify(`Record with id '${id}' not found.`));
+      }
 
-      return res.writeHead(204).end()
-    }
-  }
-]
+      const isTaskCompleted = !!task.completed_at;
+      const completed_at = isTaskCompleted ? null : new Date();
+
+      database.update("tasks", id, { completed_at });
+      return res.writeHead(HTTP_STATUS.NO_CONTENT).end();
+    },
+  },
+];
